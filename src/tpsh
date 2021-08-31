@@ -5,7 +5,7 @@ use Data::Dumper;
 use Term::ReadLine;
 
 sub VER{
-	my $V = '$Revision: 0.0.13.9 $';
+	my $V = '$Revision: 0.0.13.10 $';
 	my ($m) = $V =~ m/Revision: (.+?) \$/;
 	return "v$m";
 }
@@ -134,7 +134,7 @@ sub _tpsh_main{
 		eval $_ . ";";
 		if($@){
 			my ($m) = $@ =~ m/Bareword "(.+?)"/;
-			if($m){
+			if($m and index($_,$m) == 0){
 				run $m;
 			}else{
 				$@ =~ s/ at \(eval.*?\).*?$//;
