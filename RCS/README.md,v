@@ -1,0 +1,62 @@
+head	0.0;
+branch	0.0.13;
+access;
+symbols;
+locks
+	root:0.0.13.5; strict;
+comment	@# @;
+
+
+0.0
+date	2021.08.31.20.37.25;	author root;	state Exp;
+branches
+	0.0.13.3;
+next	;
+
+0.0.13.3
+date	2021.08.31.20.38.58;	author root;	state Exp;
+branches;
+next	0.0.13.5;
+
+0.0.13.5
+date	2021.08.31.20.42.20;	author root;	state Exp;
+branches;
+next	;
+
+
+desc
+@readme
+@
+
+
+0.0
+log
+@*** empty log message ***
+@
+text
+@
+# Tinov Perl Shell
+
+This is a simple and humble shell as of now.
+To install it, simple use git to clone the
+repository or download a snapshot from this
+page and run the ./install.sh script.
+
+Linux only for now. Windows support is a planned supported platform.
+@
+
+
+0.0.13.3
+log
+@*** empty log message ***
+@
+text
+@@
+
+
+0.0.13.5
+log
+@*** empty log message ***
+@
+text
+@@

@@ -5,7 +5,7 @@ use Data::Dumper;
 use Term::ReadLine;
 
 sub VER{
-	my $V = '$Revision: 0.0.13.1 $';
+	my $V = '$Revision: 0.0.13.9 $';
 	my ($m) = $V =~ m/Revision: (.+?) \$/;
 	return "v$m";
 }

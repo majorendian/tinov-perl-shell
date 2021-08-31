@@ -1,6 +1,6 @@
 #!/bin/bash
 
-files=`find ./ -regex ".*\.sh\|.*\.pl|tpsh"`
+files=`find ./ -regex ".*\.sh\|.*\.pl\|.*/src/tpsh\|LICENSE\|README\.md"`
 
 [[ $1 == "" ]] && echo "Must provide revision number" && exit 1
 
