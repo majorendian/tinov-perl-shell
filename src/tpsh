@@ -1,0 +1,152 @@
+#!/usr/bin/perl
+use strict;
+use warnings FATAL => qw(all);
+use Data::Dumper;
+use Term::ReadLine;
+
+sub VER{
+	my $V = '$Revision: 0.0.13.1 $';
+	my ($m) = $V =~ m/Revision: (.+?) \$/;
+	return "v$m";
+}
+
+BEGIN{
+	push @INC, "./";
+	push @INC, "./home/.tpsh/mod";
+	push @INC, "$ENV{HOME}/.tpsh/mod";
+}
+sub output(@);
+INIT{
+	#aliases
+	$::{r} = *run;
+	$::{Q} = sub { exit $_[0] if $_[0]; exit 0; };
+	$::{X} = $::{Q};
+	$::{OK} = *dobre;
+	$::{_print} = sub{ output @_ };
+}
+use TPSH::Lang::SK;
+use utf8;
+print "TPSH " . VER() . "\n";
+our $m = {}; #virtuálna pamät
+our @ts = ();
+our %PRO = ();
+our @rec = ();
+our $TERM = undef;
+
+#Runtime configuration
+our $RCONF = ".tpshrc";
+our $PS1="t> ";
+
+sub dobre(){return 1;};
+sub T(){return 1};
+sub F(){return 0};
+
+sub output(@){
+	my $l = join "",@_;
+	my $o = $TERM->OUT;
+	print $o $l;
+}
+
+sub mwr(&$){
+	my $c = shift;
+	my $name = shift;
+	$::{$name} = $c;
+}
+
+
+sub loadrc {
+	if($ENV{HOME}){
+		my $rc = "$ENV{HOME}/$RCONF";
+		-f $rc and require $rc;
+	}
+}
+
+sub view_stack{ my $c = shift; $c //= 0; print join("\n", @ts); }
+
+sub destack{
+	my $z = pop @ts;
+	eval $z;
+}
+
+sub slurp{
+	open my $fh, "<", $_[0] or die "Failed to read $_[0]:$!\n";
+	local $/ = undef; $_ = <$fh>;
+	close $fh && return $_;
+}
+
+sub rem(&$){ 
+	my ($c, $p) = @_;
+	ref($c) eq "CODE" and $m->{$p} = $c;
+}
+sub pam{
+	my @keys = keys %$m;
+	for(@keys){
+		print $_, "\n";
+	}
+}
+
+sub rec{
+	print "Command recording started\n";
+	@rec = () if @rec > 0;
+	$PRO{_rec} = T;
+}
+sub stoprec{
+	print "Command recording stopped\n";
+	$PRO{_rec} = F;
+}
+
+sub writefile($$){
+	my ($fname, $data) = @_;
+	open my $fh, ">", $fname or die "Failed to open file $fname for writting.\n";
+	print $fh $data;
+	close $fh;
+}
+
+sub writerec{
+	my $fname = shift;
+	output "Usage: writerec <file>\n" and return unless $fname;
+	shift @rec;
+	writefile $fname, join"\n",@rec;
+	output "Clearing \@rec array\n";
+	@rec = ();
+}
+	
+sub run(*@){
+	my $cmd = join "", @_;
+	print qx/$cmd/;
+}
+
+sub tu{ print $ENV{PWD} . "\n"; }
+sub pros{print $ENV{shift()} . "\n"; }
+sub smrt{die join"",@_;};
+sub ram{ print slurp("/proc/meminfo") . "\n"; }
+sub zpis{ open my $c,">",shift or return 0; for(@ts){print $c $_;}}
+sub view{ print slurp(shift); }
+sub zp($){ chdir shift; }
+sub _tpsh_main{
+	my $term = Term::ReadLine->new("Tinov Perl Shell");
+	print "Using ReadLine: " . $term->ReadLine . "\n";
+	$TERM = $term;
+	my $out = $term->OUT;
+	my $in = $term->IN;
+	while(T){ 
+		$_ = $term->readline($PS1);
+		eval $_ . ";";
+		if($@){
+			my ($m) = $@ =~ m/Bareword "(.+?)"/;
+			if($m){
+				run $m;
+			}else{
+				$@ =~ s/ at \(eval.*?\).*?$//;
+				print $out "\$\@: " . $@ if $@;
+			}
+		}
+		print $out "\$\!: " . $! . "\n" if $!;
+		chomp $_;
+		$term->addhistory($_);
+		push @ts, $_;
+		push @rec, $_ if $PRO{_rec};
+	} 
+}
+loadrc;
+_tpsh_main;
