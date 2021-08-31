@@ -1,0 +1,64 @@
+head	0.0;
+branch	0.0.13;
+access;
+symbols;
+locks
+	root:0.0.13.2; strict;
+comment	@# @;
+
+
+0.0
+date	2021.08.31.20.24.00;	author root;	state Exp;
+branches
+	0.0.13.1;
+next	;
+
+0.0.13.1
+date	2021.08.31.20.24.14;	author root;	state Exp;
+branches;
+next	0.0.13.2;
+
+0.0.13.2
+date	2021.08.31.20.24.33;	author root;	state Exp;
+branches;
+next	;
+
+
+desc
+@rcs helper
+@
+
+
+0.0
+log
+@*** empty log message ***
+@
+text
+@#!/bin/bash
+
+f=$1
+br=$2
+rev=$3
+[[ $f == "" || $rev == "" || $br == "" ]] && echo "Supply file name, branch and revision number" && exit 1
+
+rcs -i $f
+rcs -b$br $f
+ci -f$rev -l $f
+
+@
+
+
+0.0.13.1
+log
+@*** empty log message ***
+@
+text
+@@
+
+
+0.0.13.2
+log
+@*** empty log message ***
+@
+text
+@@

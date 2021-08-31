@@ -8,13 +8,13 @@ comment	@# @;
 
 
 0.0
-date	2021.08.31.19.48.24;	author root;	state Exp;
+date	2021.08.31.20.12.52;	author root;	state Exp;
 branches
 	0.0.13.1;
 next	;
 
 0.0.13.1
-date	2021.08.31.19.48.35;	author root;	state Exp;
+date	2021.08.31.20.14.11;	author root;	state Exp;
 branches;
 next	0.0.13.2;
 
@@ -30,7 +30,7 @@ next	;
 
 
 desc
-@Uninstall script for TPSH
+@rcs helpers
 @
 
 
@@ -41,16 +41,13 @@ log
 text
 @#!/bin/bash
 
-read -n1 -p "Are you sure you want to uninstall and delete all mods and scripts related to tpsh? (y/n) [N] " confirm
-echo
+files=`find ./ -regex ".*.sh|.*.pl|tpsh"`
 
-if [[ $confirm -eq "y" ]]; then
-	echo "Uninstalling..."
-	rm -vfr ~/.tpsh /.tpshrc
-	rm -vf /usr/local/sbin/tpsh 
-else
-	echo "Uninstallation aborted"
-fi
+[[ $1 == "" ]] && echo "Must provide revision number" && exit 1
+
+for f in $files; do
+	co -r$1
+done
 @
 
 
@@ -67,7 +64,10 @@ log
 @*** empty log message ***
 @
 text
-@@
+@d3 1
+a3 1
+files=`find ./ -regex ".*\.sh\|.*\.pl|tpsh"`
+@
 
 
 0.0.13.3
