@@ -1,11 +1,35 @@
-head	0.0;
-branch	0.0.13;
+head	0.4;
+branch	0.4;
 access;
 symbols;
 locks
-	root:0.0.13.12; strict;
+	root:0.4;
 comment	@# @;
 
+
+0.4
+date	2021.09.19.19.38.09;	author root;	state Exp;
+branches;
+next	0.3;
+
+0.3
+date	2021.09.17.20.00.00;	author root;	state Exp;
+branches
+	0.3.1.1
+	0.3.2.1;
+next	0.2;
+
+0.2
+date	2021.09.14.22.40.08;	author root;	state Exp;
+branches
+	0.2.1.1
+	0.2.2.1;
+next	0.1;
+
+0.1
+date	2021.09.13.22.54.44;	author root;	state Exp;
+branches;
+next	0.0;
 
 0.0
 date	2021.08.31.19.47.17;	author root;	state Exp;
@@ -61,6 +85,61 @@ next	0.0.13.12;
 0.0.13.12
 date	2021.08.31.21.05.03;	author root;	state Exp;
 branches;
+next	0.0.13.13;
+
+0.0.13.13
+date	2021.09.13.01.00.11;	author root;	state Exp;
+branches;
+next	0.0.13.14;
+
+0.0.13.14
+date	2021.09.13.22.50.06;	author root;	state Exp;
+branches;
+next	;
+
+0.2.1.1
+date	2021.09.14.22.44.54;	author root;	state Exp;
+branches;
+next	0.2.1.2;
+
+0.2.1.2
+date	2021.09.15.19.11.07;	author root;	state Exp;
+branches;
+next	;
+
+0.2.2.1
+date	2021.09.15.19.11.39;	author root;	state Exp;
+branches;
+next	0.2.2.2;
+
+0.2.2.2
+date	2021.09.15.20.40.20;	author root;	state Exp;
+branches;
+next	0.2.2.3;
+
+0.2.2.3
+date	2021.09.16.18.10.10;	author root;	state Exp;
+branches;
+next	0.2.2.4;
+
+0.2.2.4
+date	2021.09.17.19.53.38;	author root;	state Exp;
+branches;
+next	;
+
+0.3.1.1
+date	2021.09.17.20.00.30;	author root;	state Exp;
+branches;
+next	;
+
+0.3.2.1
+date	2021.09.19.19.22.04;	author root;	state Exp;
+branches;
+next	0.3.2.2;
+
+0.3.2.2
+date	2021.09.19.19.37.34;	author root;	state Exp;
+branches;
 next	;
 
 
@@ -69,19 +148,24 @@ desc
 @
 
 
-0.0
+0.4
 log
-@*** empty log message ***
+@More mature
 @
 text
 @#!/usr/bin/perl
+# vim: set ft=perlorange :
+
+package TPSH;
 use strict;
 use warnings FATAL => qw(all);
 use Data::Dumper;
-use Term::ReadLine;
-
+use IPC::Open2;
+use List::Util qw(first);
+use File::Spec;
+our $DEBUG=1;
 sub VER{
-	my $V = '$Revision: 0.0.13.1 $';
+	my $V = '$Revision: 0.3.2.2 $';
 	my ($m) = $V =~ m/Revision: (.+?) \$/;
 	return "v$m";
 }
@@ -92,26 +176,88 @@ BEGIN{
 	push @@INC, "$ENV{HOME}/.tpsh/mod";
 }
 sub output(@@);
-INIT{
-	#aliases
-	$::{r} = *run;
-	$::{Q} = sub { exit $_[0] if $_[0]; exit 0; };
-	$::{X} = $::{Q};
-	$::{OK} = *dobre;
-	$::{_print} = sub{ output @@_ };
-}
 use TPSH::Lang::SK;
+use Cwd;
 use utf8;
-print "TPSH " . VER() . "\n";
 our $m = {}; #virtuálna pamät
 our @@ts = ();
 our %PRO = ();
 our @@rec = ();
 our $TERM = undef;
+our @@DIRHIST = ();
+our @@ACFILES = ();
+our $INTERRUPT_CHILD = 0;
+
+use constant {
+TERM_BOLDWHITE => "\x1b[11;1m",
+TERM_GREEN => "\x1b[03;01m",
+TERM_GREY => "\x1b[05;05m",
+};
+
+our %SPECIAL_CHAR = (
+	'\\w' => sub { my $pwd = Cwd::cwd(); my @@splitdir = File::Spec->splitdir($pwd); $splitdir[-1];},
+	'\\h' => sub { OS_SPECIFIC{my $x = qx/hostname/; chomp $x; return $x} 'linux|unix|bsd' },
+	'\\u' => sub { return $ENV{USER}; },
+);
 
 #Runtime configuration
 our $RCONF = ".tpshrc";
-our $PS1="t> ";
+our $PS1='\h:\w t> ';
+
+sub printlicense(){
+	print "Licensed under the 3-Clause BSD License\n";
+}
+
+sub println(@@){
+	my $msg = join " ", @@_;
+	chomp $msg;
+	print $msg."\n";
+}
+
+sub _bsdtty{
+	system("stty cbreak -ctlecho </dev/tty >/dev/tty 2>&1");
+}
+
+sub subcmd($){
+	my $program = shift;
+	my $pid = fork;
+	if($pid){
+		$INTERRUPT_CHILD = $pid;
+		waitpid $pid, 1;
+		wait;
+		_bsdtty;
+		$INTERRUPT_CHILD = 0;
+	}else{
+		exec($program);
+	}
+}
+
+sub PS1(){
+	my $substit = $PS1;
+	for(keys %SPECIAL_CHAR){
+		my $tr = '\\' . $_;
+		$substit =~ s/$tr/$SPECIAL_CHAR{$_}->()/eg;
+	}
+	return $substit;
+}
+
+sub printPS1{
+	print PS1;
+}
+
+sub OS_SPECIFIC(&$){
+	my ($code, $OS) = @@_;
+	if($^O =~ qr/$OS/){
+		&$code();
+	}
+}
+
+sub cpuinfo(){
+	OS_SPECIFIC {
+		print slurp("/proc/cpuinfo");
+	} "linux|unix|bsd";
+}
+
 
 sub dobre(){return 1;};
 sub T(){return 1};
@@ -123,6 +269,19 @@ sub output(@@){
 	print $o $l;
 }
 
+
+sub quit{exit 0}
+
+sub debug{
+	#toggle debug
+	$DEBUG ^= 1;
+	if($DEBUG){
+		print "Debug output ON\n";
+	}else{
+		print "Debug output OFF\n";
+	}
+}
+
 sub mwr(&$){
 	my $c = shift;
 	my $name = shift;
@@ -132,7 +291,7 @@ sub mwr(&$){
 
 sub loadrc {
 	if($ENV{HOME}){
-		my $rc = "$ENV{HOME}/$RCONF";
+		my $rc = File::Spec->catfile($ENV{HOME}, $RCONF);
 		-f $rc and require $rc;
 	}
 }
@@ -187,25 +346,1517 @@ sub writerec{
 	@@rec = ();
 }
 	
-sub run(*@@){
-	my $cmd = join "", @@_;
-	print qx/$cmd/;
+sub run{
+	my $cmd = join "",@@_;
+	subcmd $cmd;
+}
+
+sub _checkfunc{
+	my $fname = shift;
+	for(keys %TPSH::){
+		if($fname eq $_){
+			return 1;
+		}
+	}
+	return 0;
+}
+
+
+sub _resettty{
+	system("stty -cbreak </dev/tty >/dev/tty 2>&1");
+	system("stty sane");
 }
 
 sub tu{ print $ENV{PWD} . "\n"; }
 sub pros{print $ENV{shift()} . "\n"; }
-sub smrt{die join"",@@_;};
-sub ram{ print slurp("/proc/meminfo") . "\n"; }
+sub raminfo{ 
+	OS_SPECIFIC {
+		print slurp("/proc/meminfo") . "\n"; 
+	} "linux|unix|bsd";
+}
 sub zpis{ open my $c,">",shift or return 0; for(@@ts){print $c $_;}}
 sub view{ print slurp(shift); }
 sub zp($){ chdir shift; }
+
+sub reload{
+	no warnings;
+	no strict;
+	require 
+}
+
+sub _pipeparse{
+	my $l = shift;
+	my @@pipes = split /\|/, $l;
+	_resettty;
+	pipeipc(@@pipes);
+	_bsdtty;
+}
+
+sub _perlpipeipc{
+	local $SIG{PIPE} = sub {
+		print STDERR "Broken pipe\n";
+		returnfrom _perlpipeipc;
+	};
+	my $evalcode = shift;
+	pipe my $reader, my $writer;
+	my $pid = fork;
+	if($pid){
+		close $writer;
+		wait;
+		local $/ = undef;
+		my $output = <$reader>;
+		close $reader;
+		return $output;
+	}else{
+		close $reader;
+		open(STDOUT, ">&=" . fileno($writer));
+		eval "$evalcode";
+		flush $writer;
+		close $writer;
+		exit 0;
+	}
+	return "";
+}
+sub printdbg(@@){
+	return if not $DEBUG;
+	my $msg = join "", @@_;
+	println $msg;
+}
+
+sub pipeipc{
+	warn "WARNING: Pipes are experimental\n";
+	goto &___pipeipc;
+	#experimental
+	my $progout = "";
+	EPIPESUBSTART:
+	my $program = shift;
+	$program =~ s/^\s|\s$//;
+	printdbg "PARENT: Program: $program\n";
+	if(_checkfunc($program)){
+		$progout = _perlpipeipc($program);
+		goto EPIPESUBSTART;
+	}
+	use Symbol qw(gensym);
+	my ($pin, $pout) = (gensym, gensym);
+	printdbg "PARENT: Opening pipes: $pin, $pout\n";
+	my $stdoutorig = \*STDOUT;
+	my $stdinorig = \*STDIN;
+	pipe $pin, $pout;
+	my $pid = fork;
+	if($pid){
+		open(STDIN, "<&=" . fileno($pin));
+		#open(STDOUT, ">&=" . fileno($pout));
+		$progout = <>;
+		goto EPIPESUBSTART if @@_>0;
+	}else{
+		my $subpid = open2($pout, $pin, $program);
+		if($subpid){
+			print $pout $progout;
+			wait;
+		}
+		exit 0;
+	}
+	*STDIN = $stdinorig;
+}
+
+
+
+sub ___pipeipc{
+	# Buffered pipes for multiple commands
+	my $subprogramoutput = "";
+	PIPESTART:
+	my $program = shift;
+	$program =~ s/\s$|^\s//;
+	if(_checkfunc($program) == 1){
+		$subprogramoutput = _perlpipeipc($program);
+		goto PIPESTART;
+	}
+	my $pid = open2(my $chldout, my $chldin, $program);
+	local $/ = undef;
+	print $chldin $subprogramoutput if $subprogramoutput ne "";
+	flush $chldin;
+	close $chldin;
+	$subprogramoutput = "";
+	$subprogramoutput = <$chldout>;
+	close $chldout;
+	if($pid){
+		if(@@_>0){
+			goto PIPESTART;
+		}else{
+			wait;
+			goto PIPEEND;
+		}
+	}else{
+		exit 1;
+	}
+	PIPEEND:
+	print $subprogramoutput; #should be final progoutput
+	return 0;
+}
+
+sub evalCatch(&){$_[0];}
+sub tpshReadLine(&@@){ #NOTE: &@@ can be used for custom syntax given the second param returns a value [perlsub 'catch']
+	STATICVARS:
+		my @@hist_stack = ();
+		my $histbackcount = 0;
+	LOCALSUBS:{
+		sub _gethistory{
+			no warnings;
+			return \@@hist_stack;
+		}
+		sub _onehistback{
+			no warnings;
+			$histbackcount-- if abs($histbackcount) < @@hist_stack;
+			return $histbackcount;
+		}
+
+		sub _onehistfwd{
+			no warnings;
+			$histbackcount++ if $histbackcount < @@hist_stack;
+			return $histbackcount;
+		}
+	}
+	READLINESTART:
+	my ($cmdcode,$evalcode) = @@_;
+	my $lbuff="";
+	my $wbuff="";
+	my $code = 0;
+	PRINTPS1:
+	PS1;
+	printPS1;
+	READIN:
+	my $cbuff = "";
+	$cbuff = getc;
+	if($cbuff eq "\x1b"){
+		$code = 1;
+	}
+	if($code == 1){
+		$wbuff .= $cbuff if($cbuff ne "\t" and ord($cbuff) != 127 and ord($cbuff) != 126);
+		$wbuff = "" if $cbuff eq " ";
+	}elsif($code == 2){
+		#print ord($cbuff) . "\n";
+		$wbuff .= $cbuff if($cbuff ne "\t" and ord($cbuff) != 127 and ord($cbuff) != 126);
+		$wbuff = "" if $cbuff eq " ";
+		chop $wbuff; #Removes a trailing 'A' due to arrow keys and whatnot
+	}elsif($code == 0){
+		$wbuff .= $cbuff if($cbuff ne "\t" and ord($cbuff) != 127 and ord($cbuff) != 126);
+		$wbuff = "" if $cbuff eq " ";
+	}
+	if($cbuff eq "\t"){
+		# NOTE: Match files first
+		print "\n";
+		my $fc = 0;
+		my $matched = undef;
+		println "FILES:";
+		for(@@ACFILES){
+			if(/^$wbuff/){
+				println $_;
+				$matched = $_;
+				if($fc > 20){
+					println "\n---Press any key for next page, q to quit---";
+					my $c = getc;
+					$fc = 0;
+					last if $c eq "q";
+				}
+				$fc++;
+			}
+		}
+		if($fc == 1){
+			# Matched only one file
+			$wbuff = ($matched =~ m/$wbuff(\S+)/)[0];
+			$lbuff .= $wbuff;
+			$_ = $lbuff;
+			goto TABMATCHEND;
+		}
+		print "\n---------\n";
+		# NOTE: Autocomplete for built-in functions
+		my $c = 0;
+		my $tc = 0;
+		my $matching = undef;
+		printdbg "\nMatching against $wbuff\n";
+		for(keys %TPSH::){
+			if($_ =~ /^$wbuff\S+$/){
+				print "\n" if $c == 0;
+				print "$_     ";
+				$matching = $_;
+				$c++;
+				$c = 0 if $c > 4;
+				$tc++;
+			}
+		}
+		if($tc == 1){
+			$lbuff .= ($matching =~ m/$wbuff(.+)$/)[0];
+			$wbuff = $matching;
+			$_ = $lbuff;
+		}
+		TABMATCHEND:
+		print "\n" . PS1 . $lbuff;
+		goto READIN;
+	}elsif($cbuff eq "\n"){
+		chomp $lbuff;
+		$_ = $lbuff;
+		if($lbuff eq "\n"){
+			goto READIN;
+		}
+		push @@{_gethistory()}, $lbuff if $lbuff;
+		# print Dumper(_gethistory()) . "\n\n\n";
+		my ($cmd) = m/\s?(\S+)\s?/;
+		if(m/\|/){
+			#piped commands
+			_pipeparse $_;
+		}elsif(m/;/){
+			#interpret as pure perl
+			$cmd = $_;
+			$cmd =~ s/;$//;
+			my @@params = ();
+			&$evalcode($cmd, @@params);
+		}elsif(/^!.+$/){
+			# pure subshell command
+			s/^!//;
+			chomp;
+			subcmd $_;
+			wait;
+			$wbuff = "";
+			$lbuff = "";
+			goto PRINTPS1;
+		}else{
+			my $exepath = "";
+			if(defined $cmd){
+				$exepath = first { -e -x File::Spec->catfile($_,$cmd) } split /:/,$ENV{PATH}; 
+				$exepath = File::Spec->catfile($exepath ,$cmd) if defined $exepath;
+			}
+			$exepath //= "";
+			if(defined $cmd and not _checkfunc($cmd) and -x $exepath){
+				_resettty;
+				$cmdcode->($_);
+				_bsdtty;
+				wait;
+			}else{
+				my @@params = m/\s(\S+)/g;
+				@@params = map { "\"$_\"" } @@params;
+				@@params = join ",",@@params;
+				&$evalcode($cmd, @@params);
+			}
+		}
+	}elsif($code){
+		$cbuff = getc;
+		$cbuff = getc;
+		#print ord($cbuff) . "\n";
+		if(ord($cbuff) == 65){
+			goto LABEL_AFTERHIST if @@{_gethistory()} == 0;
+			$lbuff = _gethistory()->[_onehistback()];
+			LABEL_AFTERHIST:
+			print "\n";
+			print " " x 30;
+			print "\r" . PS1 . $lbuff;
+			$_ = $lbuff;
+			$wbuff = ($lbuff =~ /\s?(\S+?)\s?/)[0];
+			$wbuff //= "";
+			$code = 2; #NOTE: Code processed
+			goto READIN;
+		}elsif(ord($cbuff) == 66){
+			$lbuff = _gethistory()->[_onehistfwd()];
+			print " " x 30;
+			print "\r" . PS1 . $lbuff;
+			$_ = $lbuff;
+			$wbuff = ($lbuff =~ /\s?(.+?)\s?/)[0];
+			$wbuff //= "";
+			$code = 2; #NOTE: Code processed
+			goto READIN;
+		}elsif(ord($cbuff) == 68 or ord($cbuff) == 67){
+			$code = 0;
+			goto READIN;
+		}
+	}else{
+		$lbuff .= $cbuff if(ord($cbuff) != 127 and ord($cbuff) != 126 and $cbuff ne "\t" and $cbuff ne "\x1b");
+		if(ord($cbuff) == 127){
+			chop $lbuff;
+			chop $wbuff;
+			print "\r";
+			print " " x 30;
+			print "\r" . PS1 . $lbuff;
+		}
+		goto READIN;
+	}
+}
+
+sub _ls{
+	my $dir = shift;
+	$dir //= ".";
+	opendir my ($dh), $dir;
+	my $c = 0;
+	my @@files = readdir $dh;
+	closedir $dh;
+	my @@dirs = grep { -d File::Spec->catfile($dir,$_) } @@files;
+	my @@regfiles = grep { ! -d File::Spec->catfile($dir,$_) } @@files;
+	my @@__ = ();
+	my $fsub = sub {
+		if(@@__ > 0){
+			shift @@__;
+		}else{
+			"";
+		}
+	};
+	format DIRFORMAT =
+@@<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<< @@<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+&$fsub(), &$fsub()
+~~
+.
+;
+	local $~ = "DIRFORMAT";
+	@@__ = @@dirs;
+	print "DIRECTORIES:\n";
+	write while @@__;
+	print "-" x 72;
+	print "\n";
+	print "REGULAR FILES:\n";
+	@@__ = ();
+	@@__ = @@regfiles;
+	write while @@__;
+	print "-" x 72;
+	print "\n";
+	if(@@_>0){
+		goto &_ls;
+	}
+}
+
+sub _curdirfiles{
+	opendir my $dh, ".";
+	@@ACFILES = readdir $dh;
+	closedir $dh;
+}
+
+sub cd(@@){
+	my $dir = shift;
+	if(defined $dir and $dir eq "-"){
+		if(@@DIRHIST > 0){
+			my $tdir = pop @@DIRHIST;
+			println $tdir;
+			chdir $tdir;
+			return;
+		}
+	}
+	if(defined $dir and ! -d $dir){
+		println "Not a directory: $dir";
+	}
+	if(defined $dir and ! -e $dir){
+		println "No such file or directory: $dir";
+	}
+	if(@@DIRHIST > 100){
+		# Allow a max of 100 directories in history
+		pop @@DIRHIST;
+	}
+	if(defined $dir){
+		push @@DIRHIST, Cwd::abs_path(Cwd::getcwd) if $dir ne "-";
+		chdir $dir;
+	}else{
+		push @@DIRHIST, Cwd::abs_path(Cwd::getcwd);
+		chdir;
+	}
+	_curdirfiles;
+}
+
+
+sub dirhist(){
+	println $_ for(@@DIRHIST);
+}
+
 sub _tpsh_main{
+	print "TPSH " . VER() . "\n";
+	printlicense;
+	_bsdtty;
+	_curdirfiles;
+	while(T){ 
+		tpshReadLine {
+			run $_[0];
+		} evalCatch {
+			my $cmd = shift() // "";
+			my @@params = @@_;
+			my $evalline = $cmd . join("",@@params) . ";";
+			if($DEBUG){
+				print "EVAL LINE: ";
+				print $evalline . "\n";
+			}
+			eval $evalline;
+			#		print "\$\!: " . $! . "\n" if $!;
+			print "\$\@@: " . $@@ . "\n" if $@@;
+			#chomp $_;
+			push @@ts, $_;
+			push @@rec, $_ if $PRO{_rec};
+			$! = undef;
+			$@@ = undef;
+		};
+	} 
+}
+
+$SIG{INT} = sub {
+	if($INTERRUPT_CHILD){
+		kill 'INT', $INTERRUPT_CHILD;
+		return;
+	}else{
+		_resettty;
+		print "\n";
+		exit 1;
+	}
+};
+$SIG{TERM} = $SIG{INT};
+#$SIG{KILL} = $SIG{INT};
+
+INIT{
+	#aliases
+	$TPSH::{p} = \&println;
+	$::{r} = *run;
+	$::{Q} = sub { exit $_[0] if $_[0]; exit 0; };
+	$::{X} = $::{Q};
+	$::{OK} = *dobre;
+	$::{_print} = sub{ output @@_ };
+}
+
+print TERM_GREEN. "\n";
+loadrc;
+_tpsh_main;
+1;
+@
+
+
+0.3
+log
+@new branch\
+@
+text
+@d13 1
+a13 1
+	my $V = '$Revision: 0.2.2.4 $';
+d25 1
+a26 1
+print "TPSH " . VER() . "\n";
+d34 13
+d50 15
+a64 1
+our $PS1="t> ";
+d70 1
+d72 3
+d80 13
+d95 1
+a95 1
+	if($^O eq $OS){
+d103 1
+a103 1
+	} "linux";
+a116 5
+sub println(@@){
+	my $msg = join " ", @@_;
+	chomp $msg;
+	print $msg."\n";
+}
+d139 1
+a139 1
+		my $rc = "$ENV{HOME}/$RCONF";
+a208 3
+sub _bsdtty{
+	system("stty cbreak -ctlecho </dev/tty >/dev/tty 2>&1");
+}
+d217 5
+a221 2
+sub smrt{die join"",@@_;};
+sub ram{ print slurp("/proc/meminfo") . "\n"; }
+d226 5
+d354 1
+a354 1
+			$histbackcount++ if $histbackcount < @@hist_stack-1;
+d360 1
+a360 1
+			$histbackcount-- if $histbackcount > 0;
+d370 2
+a371 1
+	print "$PS1";
+d393 3
+d398 9
+a406 1
+				print $_;
+d409 7
+d425 1
+a425 1
+				print "$_ ";
+d438 1
+a438 1
+		print "\n$PS1$lbuff";
+d491 1
+d493 1
+d496 1
+a496 1
+			print "\r$PS1" . $lbuff;
+d505 1
+a505 1
+			print "\r$PS1" . $lbuff;
+d522 1
+a522 1
+			print "\r$PS1" . $lbuff;
+d578 1
+a578 1
+			my $tdir = shift @@DIRHIST;
+d584 6
+a593 1
+	push @@DIRHIST, File::Spec->rel2abs($dir, File::Spec->curdir()) if defined $dir and $dir ne "-";
+d595 1
+d598 1
+d610 2
+d638 8
+a645 3
+	_resettty;
+	print "\n";
+	exit 1;
+d648 1
+d660 1
+@
+
+
+0.3.2.1
+log
+@Colors, sigint, and other features
+@
+text
+@d13 1
+a13 1
+	my $V = '$Revision: 0.3.1.1 $';
+a24 1
+use Cwd;
+d26 1
+a33 13
+our $INTERRUPT_CHILD = 0;
+
+use constant {
+TERM_BOLDWHITE => "\x1b[11;1m",
+TERM_GREEN => "\x1b[03;01m",
+TERM_GREY => "\x1b[05;05m",
+};
+
+our %SPECIAL_CHAR = (
+	'\\w' => sub { my $pwd = Cwd::cwd(); my @@splitdir = File::Spec->splitdir($pwd); $splitdir[-1];},
+	'\\h' => sub { OS_SPECIFIC{my $x = qx/hostname/; chomp $x; return $x} 'linux|unix|bsd' },
+	'\\u' => sub { return $ENV{USER}; },
+);
+d37 1
+a37 15
+our $PS1='\h:\w t> ';
+
+sub printlicense(){
+	print "Licensed under the 3-Clause BSD License\n";
+}
+
+sub println(@@){
+	my $msg = join " ", @@_;
+	chomp $msg;
+	print $msg."\n";
+}
+
+sub _bsdtty{
+	system("stty cbreak -ctlecho </dev/tty >/dev/tty 2>&1");
+}
+a42 1
+		$INTERRUPT_CHILD = $pid;
+a43 3
+		wait;
+		_bsdtty;
+		$INTERRUPT_CHILD = 0;
+a48 13
+sub PS1(){
+	my $substit = $PS1;
+	for(keys %SPECIAL_CHAR){
+		my $tr = '\\' . $_;
+		$substit =~ s/$tr/$SPECIAL_CHAR{$_}->()/eg;
+	}
+	return $substit;
+}
+
+sub printPS1{
+	print PS1;
+}
+
+d51 1
+a51 1
+	if($^O =~ qr/$OS/){
+d59 1
+a59 1
+	} "linux|unix|bsd";
+d73 5
+d100 1
+a100 1
+		my $rc = File::Spec->catfile($ENV{HOME}, $RCONF);
+d170 3
+d181 2
+a182 5
+sub raminfo{ 
+	OS_SPECIFIC {
+		print slurp("/proc/meminfo") . "\n"; 
+	} "linux|unix|bsd";
+}
+a186 5
+sub reload{
+	no warnings;
+	no strict;
+	require 
+}
+d326 1
+a326 2
+	PS1;
+	printPS1;
+a347 3
+		my $fc = 0;
+		my $matched = undef;
+		println "FILES:";
+d350 1
+a350 9
+				println $_;
+				$matched = $_;
+				if($fc > 20){
+					println "\n---Press any key for next page, q to quit---";
+					my $c = getc;
+					$fc = 0;
+					last if $c eq "q";
+				}
+				$fc++;
+a352 7
+		if($fc == 1){
+			# Matched only one file
+			$wbuff = ($matched =~ m/$wbuff(\S+)/)[0];
+			$lbuff .= $wbuff;
+			$_ = $lbuff;
+			goto TABMATCHEND;
+		}
+d362 1
+a362 1
+				print "$_     ";
+d375 1
+a375 1
+		print "\n" . PS1 . $lbuff;
+d431 1
+a431 1
+			print "\r" . PS1 . $lbuff;
+d440 1
+a440 1
+			print "\r" . PS1 . $lbuff;
+d457 1
+a457 1
+			print "\r" . PS1 . $lbuff;
+d513 1
+a513 1
+			my $tdir = pop @@DIRHIST;
+a518 6
+	if(defined $dir and ! -d $dir){
+		println "Not a directory: $dir";
+	}
+	if(defined $dir and ! -e $dir){
+		println "No such file or directory: $dir";
+	}
+d523 1
+a524 1
+		push @@DIRHIST, Cwd::abs_path(Cwd::getcwd) if $dir ne "-";
+a526 1
+		push @@DIRHIST, Cwd::abs_path(Cwd::getcwd);
+a537 2
+	print "TPSH " . VER() . "\n";
+	printlicense;
+d564 3
+a566 8
+	if($INTERRUPT_CHILD){
+		kill 'INT', $INTERRUPT_CHILD;
+		return;
+	}else{
+		_resettty;
+		print "\n";
+		exit 1;
+	}
+a568 1
+#$SIG{KILL} = $SIG{INT};
+a579 1
+print TERM_GREEN. "\n";
+@
+
+
+0.3.2.2
+log
+@History fix
+@
+text
+@d13 1
+a13 1
+	my $V = '$Revision: 0.3.2.1 $';
+d354 1
+a354 1
+			$histbackcount-- if abs($histbackcount) < @@hist_stack;
+d360 1
+a360 1
+			$histbackcount++ if $histbackcount < @@hist_stack;
+a490 1
+			goto LABEL_AFTERHIST if @@{_gethistory()} == 0;
+a491 1
+			LABEL_AFTERHIST:
+@
+
+
+0.3.1.1
+log
+@new revision branch
+/
+@
+text
+@d13 1
+a13 1
+	my $V = '$Revision: 0.3 $';
+@
+
+
+0.2
+log
+@alpha stage of pipe feature
+@
+text
+@d8 4
+d13 1
+a13 1
+	my $V = '$Revision: 0.1 $';
+d32 2
+d39 24
+d73 18
+d156 2
+a157 2
+	my $cmd = join "", @@_;
+	print qx/$cmd/;
+a186 10
+sub _recpipes{
+	my $accumref = shift;
+	my $left = shift;
+	my $right = shift;
+	$left =~ s/^\s|\s$//;
+	return if not defined $right;
+	$right =~ s/^\s|\s$//;
+	push @@$accumref, [ $left , $right ];
+	_recpipes($accumref, $right, @@_);
+}
+d191 66
+a256 21
+	my $pc = @@pipes;
+	my $pipecmds = [];
+	my @@programOrder = ();
+	my @@pipehandles = ();
+	for(0 .. @@pipes-1){
+		use Symbol qw(gensym);
+		my ($pin, $pout) = (gensym, gensym);
+		pipe $pin, $pout;
+		push @@pipehandles, [$pin, $pout];
+	}
+	my $pipeidx = 0;
+	for my $idx(0 .. @@pipes-1){
+		my $program = shift @@pipes;
+		$program =~ s/^\s|\s$//;
+		if($idx == 0){
+			push @@programOrder, [ "OUT", $program, $pipehandles[$pipeidx]];
+		}elsif($idx == $pc-1){
+			push @@programOrder, ["IN", $program, $pipehandles[$pipeidx]];
+		}else{
+			push @@programOrder, ["INOUT", $program, $pipehandles[$pipeidx]];
+			$pipeidx++;
+d258 1
+d260 26
+a285 8
+	#	print Dumper \@@programOrder;
+	local $| = 1;
+	my $pid = undef;
+	for my $program(@@programOrder){
+		my ($direction, $programName, $pipearef) = @@$program;
+		$pid=fork;
+		if($pid){
+			#parent
+d287 2
+a288 15
+			#child
+			if($direction eq "IN"){
+				open(STDIN, "<&=" . fileno($pipearef->[0]));
+				#print "$programName <";
+			}
+			if($direction eq "OUT"){
+				open(STDOUT, ">&=" . fileno($pipearef->[1]));
+				#print "$programName >";
+			}
+			if($direction eq "INOUT"){
+				#print "$programName <>";
+				open(STDOUT, ">&=" . fileno($pipearef->[1]));
+				open(STDIN, "<&=" . fileno($pipearef->[0]));
+			}
+			exec($programName);
+d290 2
+d293 3
+a295 1
+	waitpid $pid, 1;
+a297 1
+
+d324 1
+d330 15
+a344 2
+	$wbuff .= $cbuff if($cbuff ne "\t" and ord($cbuff) != 127 and ord($cbuff) != 126);
+	$wbuff = "" if $cbuff eq " ";
+d346 9
+d356 3
+d360 1
+a360 1
+			if($_ =~ m/$wbuff/){
+d363 1
+d366 1
+d369 6
+d384 2
+a385 3
+		#print Dumper(_gethistory()) . "\n\n\n";
+		my ($cmd) = m/\s?(.+)\s?/;
+		#FIXME: -e generates a "No such file or directory" message in $! due to cmd being an unexpected value
+d389 15
+d405 8
+a412 1
+			if(defined $cmd and not _checkfunc($cmd) and -e ("/bin/" . $cmd)){
+d414 2
+d417 4
+a420 1
+				&$evalcode($_);
+d423 27
+a449 17
+	}elsif(ord($cbuff) == 65){
+		$lbuff = _gethistory()->[_onehistback()];
+		print "\n";
+		print " " x 30;
+		print "\r$PS1" . $lbuff;
+		$_ = $lbuff;
+		$wbuff = ($lbuff =~ /\s?(.+?)\s?/)[0];
+		$wbuff //= "";
+		goto READIN;
+	}elsif(ord($cbuff) == 66){
+		$lbuff = _gethistory()->[_onehistfwd()];
+		print " " x 30;
+		print "\r$PS1" . $lbuff;
+		$_ = $lbuff;
+		$wbuff = ($lbuff =~ /\s?(.+?)\s?/)[0];
+		$wbuff //= "";
+		goto READIN;
+d451 1
+a451 1
+		$lbuff .= $cbuff if(ord($cbuff) != 127 and ord($cbuff) != 126 and $cbuff ne "\t");
+d463 1
+a463 1
+sub ls{
+d470 2
+a471 2
+	my @@dirs = grep { -d "$dir/".$_ } @@files;
+	my @@regfiles = grep { ! -d "$dir/".$_ } @@files;
+d498 37
+d539 1
+d544 9
+a552 2
+			eval $_ . ";";
+			print "\$\!: " . $! . "\n" if $!;
+d568 1
+d572 1
+@
+
+
+0.2.2.1
+log
+@pipes feature implemented
+@
+text
+@a7 1
+use IPC::Open2;
+d9 1
+a9 1
+	my $V = '$Revision: 0.2.1.2 $';
+d139 10
+d153 31
+a183 20
+	pipeipc(@@pipes);
+}
+
+
+sub pipeipc{
+	# Buffered pipes for multiple commands
+	my $subprogramoutput = "";
+	PIPESTART:
+	my $program = shift;
+	my $pid = open2(my $chldout, my $chldin, $program);
+	local $/ = undef;
+	print $chldin $subprogramoutput if $subprogramoutput ne "";
+	flush $chldin;
+	close $chldin;
+	$subprogramoutput = "";
+	$subprogramoutput = <$chldout>;
+	close $chldout;
+	if($pid){
+		if(@@_>0){
+			goto PIPESTART;
+d185 15
+a199 2
+			waitpid $pid, 0;
+			goto PIPEEND;
+a200 2
+	}else{
+		exit 1;
+d202 1
+a202 2
+	PIPEEND:
+	print $subprogramoutput; #should be final progoutput
+d204 1
+@
+
+
+0.2.2.2
+log
+@Bugfixes for executable search
+@
+text
+@a8 2
+use List::Util qw(first);
+our $DEBUG=1;
+d10 1
+a10 1
+	my $V = '$Revision: 0.2.2.1 $';
+a43 16
+sub println(@@){
+	print join(" ",@@_)."\n";
+}
+
+sub quit{exit 0}
+
+sub debug{
+	#toggle debug
+	$DEBUG ^= 1;
+	if($DEBUG){
+		print "Debug output ON\n";
+	}else{
+		print "Debug output OFF\n";
+	}
+}
+
+d109 1
+a109 1
+	my $cmd = join "",@@_;
+a143 1
+	_resettty;
+a144 1
+	_bsdtty;
+d228 2
+a229 1
+		my ($cmd) = m/\s?(\S+)\s?/;
+a232 6
+		}elsif(m/;/){
+			#interpret as pure perl
+			$cmd = $_;
+			$cmd =~ s/;$//;
+			my @@params = ();
+			&$evalcode($cmd, @@params);
+d234 1
+a234 7
+			my $exepath = "";
+			if(defined $cmd){
+				$exepath = first { -e -x "$_/$cmd" } split /:/,$ENV{PATH}; 
+				$exepath .= "/".$cmd;
+			}
+			if(defined $cmd and not _checkfunc($cmd) and -x $exepath){
+				_resettty;
+a235 1
+				_bsdtty;
+d237 1
+a237 4
+				my @@params = m/\s(\S+)/g;
+				@@params = map { "\"$_\"" } @@params;
+				@@params = join ",",@@params;
+				&$evalcode($cmd, @@params);
+d240 1
+a240 1
+	}elsif(F and ord($cbuff) == 65){
+d249 1
+a249 1
+	}elsif(F and ord($cbuff) == 66){
+d270 1
+a270 1
+sub _ls{
+a304 7
+	if(@@_>0){
+		goto &_ls;
+	}
+}
+
+sub cd($){
+	chdir shift();
+d313 2
+a314 9
+			my $cmd = shift() // "";
+			my @@params = @@_;
+			my $evalline = $cmd . join("",@@params) . ";";
+			if($DEBUG){
+				print "EVAL LINE: ";
+				print $evalline . "\n";
+			}
+			eval $evalline;
+			#		print "\$\!: " . $! . "\n" if $!;
+a329 1
+$SIG{TERM} = $SIG{INT};
+a332 1
+	$TPSH::{p} = \&println;
+@
+
+
+0.2.2.3
+log
+@Beta version of pipe feature
+@
+text
+@d12 1
+a12 1
+	my $V = '$Revision: 0.2.2.2 $';
+a35 24
+sub subcmd($){
+	my $program = shift;
+	my $pid = fork;
+	if($pid){
+		waitpid $pid, 1;
+	}else{
+		exec($program);
+	}
+}
+
+sub OS_SPECIFIC(&$){
+	my ($code, $OS) = @@_;
+	if($^O eq $OS){
+		&$code();
+	}
+}
+
+sub cpuinfo(){
+	OS_SPECIFIC {
+		print slurp("/proc/cpuinfo");
+	} "linux";
+}
+
+
+d128 1
+a128 1
+	subcmd $cmd;
+a166 25
+sub _perlpipeipc{
+	local $SIG{PIPE} = sub {
+		print STDERR "Broken pipe\n";
+		returnfrom _perlpipeipc;
+	};
+	my $evalcode = shift;
+	pipe my $reader, my $writer;
+	my $pid = fork;
+	if($pid){
+		close $writer;
+		wait;
+		local $/ = undef;
+		my $output = <$reader>;
+		close $reader;
+		return $output;
+	}else{
+		close $reader;
+		open(STDOUT, ">&=" . fileno($writer));
+		eval "$evalcode";
+		flush $writer;
+		close $writer;
+		exit 0;
+	}
+	return "";
+}
+a172 5
+	$program =~ s/\s$|^\s//;
+	if(_checkfunc($program) == 1){
+		$subprogramoutput = _perlpipeipc($program);
+		goto PIPESTART;
+	}
+d185 1
+a185 1
+			wait;
+a192 1
+	return 0;
+a220 1
+	my $code = 0;
+d226 2
+a227 12
+	if($cbuff eq "\x1b"){
+		$code = 1;
+	}
+	if($code == 1){
+		$wbuff .= $cbuff if($cbuff ne "\t" and ord($cbuff) != 127 and ord($cbuff) != 126);
+		$wbuff = "" if $cbuff eq " ";
+	}elsif($code == 2){
+		#print ord($cbuff) . "\n";
+		$wbuff .= $cbuff if($cbuff ne "\t" and ord($cbuff) != 127 and ord($cbuff) != 126);
+		$wbuff = "" if $cbuff eq " ";
+		chop $wbuff; #Removes a trailing 'A' due to arrow keys and whatnot
+	}
+d247 1
+a247 1
+		print Dumper(_gethistory()) . "\n\n\n";
+a267 1
+				wait;
+d275 17
+a291 27
+	}elsif($code){
+		$cbuff = getc;
+		$cbuff = getc;
+		#print ord($cbuff) . "\n";
+		if(ord($cbuff) == 65){
+			$lbuff = _gethistory()->[_onehistback()];
+			print "\n";
+			print " " x 30;
+			print "\r$PS1" . $lbuff;
+			$_ = $lbuff;
+			$wbuff = ($lbuff =~ /\s?(\S+?)\s?/)[0];
+			$wbuff //= "";
+			$code = 2; #NOTE: Code processed
+			goto READIN;
+		}elsif(ord($cbuff) == 66){
+			$lbuff = _gethistory()->[_onehistfwd()];
+			print " " x 30;
+			print "\r$PS1" . $lbuff;
+			$_ = $lbuff;
+			$wbuff = ($lbuff =~ /\s?(.+?)\s?/)[0];
+			$wbuff //= "";
+			$code = 2; #NOTE: Code processed
+			goto READIN;
+		}elsif(ord($cbuff) == 68 or ord($cbuff) == 67){
+			$code = 0;
+			goto READIN;
+		}
+d293 1
+a293 1
+		$lbuff .= $cbuff if(ord($cbuff) != 127 and ord($cbuff) != 126 and $cbuff ne "\t" and $cbuff ne "\x1b");
+d345 2
+a346 4
+sub cd(@@){
+	my $dir = shift;
+	chdir $dir if defined $dir;
+	chdir;
+@
+
+
+0.2.2.4
+log
+@More functionality, pipes left on experiemtnal
+@
+text
+@a9 1
+use File::Spec;
+d12 1
+a12 1
+	my $V = '$Revision: 0.2.2.3 $';
+a30 2
+our @@DIRHIST = ();
+our @@ACFILES = ();
+d71 1
+a71 3
+	my $msg = join " ", @@_;
+	chomp $msg;
+	print $msg."\n";
+a215 5
+sub printdbg(@@){
+	return if not $DEBUG;
+	my $msg = join "", @@_;
+	println $msg;
+}
+a217 38
+	warn "WARNING: Pipes are experimental\n";
+	goto &___pipeipc;
+	#experimental
+	my $progout = "";
+	EPIPESUBSTART:
+	my $program = shift;
+	$program =~ s/^\s|\s$//;
+	printdbg "PARENT: Program: $program\n";
+	if(_checkfunc($program)){
+		$progout = _perlpipeipc($program);
+		goto EPIPESUBSTART;
+	}
+	use Symbol qw(gensym);
+	my ($pin, $pout) = (gensym, gensym);
+	printdbg "PARENT: Opening pipes: $pin, $pout\n";
+	my $stdoutorig = \*STDOUT;
+	my $stdinorig = \*STDIN;
+	pipe $pin, $pout;
+	my $pid = fork;
+	if($pid){
+		open(STDIN, "<&=" . fileno($pin));
+		#open(STDOUT, ">&=" . fileno($pout));
+		$progout = <>;
+		goto EPIPESUBSTART if @@_>0;
+	}else{
+		my $subpid = open2($pout, $pin, $program);
+		if($subpid){
+			print $pout $progout;
+			wait;
+		}
+		exit 0;
+	}
+	*STDIN = $stdinorig;
+}
+
+
+
+sub ___pipeipc{
+a292 3
+	}elsif($code == 0){
+		$wbuff .= $cbuff if($cbuff ne "\t" and ord($cbuff) != 127 and ord($cbuff) != 126);
+		$wbuff = "" if $cbuff eq " ";
+a294 9
+		# NOTE: Match files first
+		print "\n";
+		for(@@ACFILES){
+			if(/^$wbuff/){
+				print $_;
+			}
+		}
+		print "\n---------\n";
+		# NOTE: Autocomplete for built-in functions
+a295 3
+		my $tc = 0;
+		my $matching = undef;
+		printdbg "\nMatching against $wbuff\n";
+d297 1
+a297 1
+			if($_ =~ /^$wbuff\S+$/){
+a299 1
+				$matching = $_;
+a301 1
+				$tc++;
+a303 6
+		if($tc == 1){
+			$lbuff .= ($matching =~ m/$wbuff(.+)$/)[0];
+			$wbuff = $matching;
+			$_ = $lbuff;
+		}
+		TABMATCHEND:
+d313 1
+a313 1
+		# print Dumper(_gethistory()) . "\n\n\n";
+a323 9
+		}elsif(/^!.+$/){
+			# pure subshell command
+			s/^!//;
+			chomp;
+			subcmd $_;
+			wait;
+			$wbuff = "";
+			$lbuff = "";
+			goto PRINTPS1;
+d327 2
+a328 2
+				$exepath = first { -e -x File::Spec->catfile($_,$cmd) } split /:/,$ENV{PATH}; 
+				$exepath = File::Spec->catfile($exepath ,$cmd) if defined $exepath;
+a329 1
+			$exepath //= "";
+d389 2
+a390 2
+	my @@dirs = grep { -d File::Spec->catfile($dir,$_) } @@files;
+	my @@regfiles = grep { ! -d File::Spec->catfile($dir,$_) } @@files;
+a421 6
+sub _curdirfiles{
+	opendir my $dh, ".";
+	@@ACFILES = readdir $dh;
+	closedir $dh;
+}
+
+d424 2
+a425 24
+	if(defined $dir and $dir eq "-"){
+		if(@@DIRHIST > 0){
+			my $tdir = shift @@DIRHIST;
+			println $tdir;
+			chdir $tdir;
+			return;
+		}
+	}
+	if(@@DIRHIST > 100){
+		# Allow a max of 100 directories in history
+		pop @@DIRHIST;
+	}
+	push @@DIRHIST, File::Spec->rel2abs($dir, File::Spec->curdir()) if defined $dir and $dir ne "-";
+	if(defined $dir){
+		chdir $dir;
+	}else{
+		chdir;
+	}
+	_curdirfiles;
+}
+
+
+sub dirhist(){
+	println $_ for(@@DIRHIST);
+a429 1
+	_curdirfiles;
+@
+
+
+0.2.1.1
+log
+@pipe feature exp
+@
+text
+@d9 1
+a9 1
+	my $V = '$Revision: 0.2 $';
+@
+
+
+0.2.1.2
+log
+@Finished an implementation of pipes
+@
+text
+@a7 1
+use IPC::Open2;
+d9 1
+a9 1
+	my $V = '$Revision: 0.2.1.1 $';
+d139 10
+d153 31
+a183 20
+	pipeipc(@@pipes);
+}
+
+
+sub pipeipc{
+	# Buffered pipes for multiple commands
+	my $subprogramoutput = "";
+	PIPESTART:
+	my $program = shift;
+	my $pid = open2(my $chldout, my $chldin, $program);
+	local $/ = undef;
+	print $chldin $subprogramoutput if $subprogramoutput ne "";
+	flush $chldin;
+	close $chldin;
+	$subprogramoutput = "";
+	$subprogramoutput = <$chldout>;
+	close $chldout;
+	if($pid){
+		if(@@_>0){
+			goto PIPESTART;
+d185 15
+a199 2
+			waitpid $pid, 0;
+			goto PIPEEND;
+a200 2
+	}else{
+		exit 1;
+d202 1
+a202 2
+	PIPEEND:
+	print $subprogramoutput; #should be final progoutput
+d204 1
+@
+
+
+0.1
+log
+@New branch
+@
+text
+@d9 1
+a9 1
+	my $V = '$Revision: 0.0.13.14 $';
+d138 68
+d211 17
+a227 1
+		goto LOCALSUBS;
+d257 2
+a258 2
+		push @@{_gethistory()}, $lbuff;
+		print Dumper(_gethistory()) . "\n\n\n";
+d261 3
+a263 2
+		if(defined $cmd and not _checkfunc($cmd) and -e ("/bin/" . $cmd)){
+			$cmdcode->($_);
+d265 5
+a269 1
+			&$evalcode($_);
+d299 1
+a299 11
+	goto OVERLOCALSUBS;
+	LOCALSUBS:{
+		sub _gethistory{
+			no warnings;
+			return \@@hist_stack;
+		}
+		sub _onehistback{
+			no warnings;
+			$histbackcount++ if $histbackcount < @@hist_stack-1;
+			return $histbackcount;
+		}
+d301 15
+a315 4
+		sub _onehistfwd{
+			no warnings;
+			$histbackcount-- if $histbackcount > 0;
+			return $histbackcount;
+d317 19
+a335 3
+		goto READLINESTART;
+	}
+	OVERLOCALSUBS:
+d337 1
+d347 1
+a347 1
+			chomp $_;
+a360 15
+
+BEGIN{
+	# Register most used commands like cd
+	sub _regcom(&$){
+		my $code = shift;
+		my $fname = shift;
+		no strict 'refs';
+		*$fname = sub { return $code->(@@_); };
+	}
+	sub _regcmd($){
+		my $fname = shift;
+		_regcom { print qx/$fname @@_/; } $fname;
+	}
+
+}
+@
+
+
+0.0
+log
+@*** empty log message ***
+@
+text
+@d2 3
+a7 2
+use Term::ReadLine;
+
+d9 1
+a9 1
+	my $V = '$Revision: 0.0.13.1 $';
+a19 8
+INIT{
+	#aliases
+	$::{r} = *run;
+	$::{Q} = sub { exit $_[0] if $_[0]; exit 0; };
+	$::{X} = $::{Q};
+	$::{OK} = *dobre;
+	$::{_print} = sub{ output @@_ };
+}
+d107 1
+a107 1
+sub run(*@@){
+d112 19
+d138 93
+d232 1
+a232 5
 	my $term = Term::ReadLine->new("Tinov Perl Shell");
 	print "Using ReadLine: " . $term->ReadLine . "\n";
 	$TERM = $term;
 	my $out = $term->OUT;
 	my $in = $term->IN;
-	while(T){ 
+d234 12
+a245 16
 		$_ = $term->readline($PS1);
 		eval $_ . ";";
 		if($@@){
@@ -222,10 +1873,8 @@ sub _tpsh_main{
 		$term->addhistory($_);
 		push @@ts, $_;
 		push @@rec, $_ if $PRO{_rec};
-	} 
-}
-loadrc;
-_tpsh_main;
+d248 31
+d281 1
 @
 
 
@@ -339,4 +1988,270 @@ text
 @d8 1
 a8 1
 	my $V = '$Revision: 0.0.13.11 $';
+@
+
+
+0.0.13.13
+log
+@Improvised Readline functionality in case Term::ReadLine is not available
+@
+text
+@a1 1
+# vim: set ft=perlorange :
+a5 3
+use IO::Handle;
+
+package TPSH;
+d8 1
+a8 1
+	my $V = '$Revision: 0.0.13.12 $';
+d19 8
+d114 1
+a114 1
+sub run{
+a118 19
+sub _checkfunc{
+	my $fname = shift;
+	for(keys %TPSH::){
+		if($fname eq $_){
+			return 1;
+		}
+	}
+	return 0;
+}
+
+sub _bsdtty{
+	system("stty cbreak -ctlecho </dev/tty >/dev/tty 2>&1");
+}
+
+sub _resettty{
+	system("stty -cbreak </dev/tty >/dev/tty 2>&1");
+	system("stty sane");
+}
+
+a126 1
+	_bsdtty;
+d130 2
+a131 4
+	#my $out = $term->OUT // \*STDOUT;
+	#my $in = $term->IN // \*STDIN;
+	my $ioh = IO::Handle->new;
+	$ioh->fdopen(fileno(STDIN), "r");
+d133 6
+a138 39
+		if($term->ReadLine =~ m/Stub/){
+			my $lbuff="";
+			my $wbuff="";
+			PRINTPS1:
+			print "$PS1";
+			READIN:
+			my $cbuff = "";
+			$cbuff = getc;
+			$wbuff .= $cbuff if($cbuff ne "\t" and ord($cbuff) != 127 and ord($cbuff) != 126);
+			$wbuff = "" if $cbuff eq " ";
+			if($cbuff eq "\t"){
+				my $c = 0;
+				for(keys %TPSH::){
+					if($_ =~ m/$wbuff/){
+						print "\n" if $c == 0;
+						print "$_ ";
+						$c++;
+						$c = 0 if $c > 4;
+					}
+				}
+				print "\n$PS1$lbuff";
+				goto READIN;
+			}elsif($cbuff eq "\n"){
+				chomp $lbuff;
+				$_ = $lbuff;
+				if($lbuff eq "\n"){goto READIN;}
+				my ($cmd) = m/\s?(.+)\s?/;
+				if(defined $cmd and not _checkfunc($cmd) and -e ("/bin/" . $cmd)){
+					run $_;
+				}else{
+					eval $_ . ";";
+					print "\$\!: " . $! . "\n" if $!;
+					print "\$\@@: " . $@@ . "\n" if $@@;
+					chomp $_;
+					push @@ts, $_;
+					push @@rec, $_ if $PRO{_rec};
+					$! = undef;
+					$@@ = undef;
+				}
+d140 2
+a141 9
+				$lbuff .= $cbuff if(ord($cbuff) != 127 and ord($cbuff) != 126 and $cbuff ne "\t");
+				if(ord($cbuff) == 127){
+					chop $lbuff;
+					chop $wbuff;
+					print "\r";
+					print " " x 30;
+					print "\r$PS1" . $lbuff;
+				}
+				goto READIN;
+a142 2
+		}else{
+			$_ = $term->readline($PS1);
+d144 5
+a150 31
+
+$SIG{INT} = sub {
+	_resettty;
+	print "\n";
+	exit 1;
+};
+
+BEGIN{
+	# Register most used commands like cd
+	sub _regcom(&$){
+		my $code = shift;
+		my $fname = shift;
+		no strict 'refs';
+		*$fname = sub { return $code->(@@_); };
+	}
+	sub _regcmd($){
+		my $fname = shift;
+		_regcom { print qx/$fname @@_/; } $fname;
+	}
+
+}
+
+INIT{
+	#aliases
+	$::{r} = *run;
+	$::{Q} = sub { exit $_[0] if $_[0]; exit 0; };
+	$::{X} = $::{Q};
+	$::{OK} = *dobre;
+	$::{_print} = sub{ output @@_ };
+}
+
+a152 1
+1;
+@
+
+
+0.0.13.14
+log
+@Implemented up arrow/down arrow (history)
+and word completion
+@
+text
+@a2 2
+
+package TPSH;
+d6 5
+d12 1
+a12 1
+	my $V = '$Revision: 0.0.13.13 $';
+d141 59
+a199 25
+sub evalCatch(&){$_[0];}
+sub tpshReadLine(&@@){ #NOTE: &@@ can be used for custom syntax given the second param returns a value [perlsub 'catch']
+	STATICVARS:
+		my @@hist_stack = ();
+		my $histbackcount = 0;
+		goto LOCALSUBS;
+	READLINESTART:
+	my ($cmdcode,$evalcode) = @@_;
+	my $lbuff="";
+	my $wbuff="";
+	PRINTPS1:
+	print "$PS1";
+	READIN:
+	my $cbuff = "";
+	$cbuff = getc;
+	$wbuff .= $cbuff if($cbuff ne "\t" and ord($cbuff) != 127 and ord($cbuff) != 126);
+	$wbuff = "" if $cbuff eq " ";
+	if($cbuff eq "\t"){
+		my $c = 0;
+		for(keys %TPSH::){
+			if($_ =~ m/$wbuff/){
+				print "\n" if $c == 0;
+				print "$_ ";
+				$c++;
+				$c = 0 if $c > 4;
+a200 15
+		}
+		print "\n$PS1$lbuff";
+		goto READIN;
+	}elsif($cbuff eq "\n"){
+		chomp $lbuff;
+		$_ = $lbuff;
+		if($lbuff eq "\n"){
+			goto READIN;
+		}
+		push @@{_gethistory()}, $lbuff;
+		print Dumper(_gethistory()) . "\n\n\n";
+		my ($cmd) = m/\s?(.+)\s?/;
+		#FIXME: -e generates a "No such file or directory" message in $! due to cmd being an unexpected value
+		if(defined $cmd and not _checkfunc($cmd) and -e ("/bin/" . $cmd)){
+			$cmdcode->($_);
+d202 1
+a202 27
+			&$evalcode($_);
+		}
+	}elsif(ord($cbuff) == 65){
+		$lbuff = _gethistory()->[_onehistback()];
+		print "\n";
+		print " " x 30;
+		print "\r$PS1" . $lbuff;
+		$_ = $lbuff;
+		$wbuff = ($lbuff =~ /\s?(.+?)\s?/)[0];
+		$wbuff //= "";
+		goto READIN;
+	}elsif(ord($cbuff) == 66){
+		$lbuff = _gethistory()->[_onehistfwd()];
+		print " " x 30;
+		print "\r$PS1" . $lbuff;
+		$_ = $lbuff;
+		$wbuff = ($lbuff =~ /\s?(.+?)\s?/)[0];
+		$wbuff //= "";
+		goto READIN;
+	}else{
+		$lbuff .= $cbuff if(ord($cbuff) != 127 and ord($cbuff) != 126 and $cbuff ne "\t");
+		if(ord($cbuff) == 127){
+			chop $lbuff;
+			chop $wbuff;
+			print "\r";
+			print " " x 30;
+			print "\r$PS1" . $lbuff;
+a203 38
+		goto READIN;
+	}
+	goto OVERLOCALSUBS;
+	LOCALSUBS:{
+		sub _gethistory{
+			no warnings;
+			return \@@hist_stack;
+		}
+		sub _onehistback{
+			no warnings;
+			$histbackcount++ if $histbackcount < @@hist_stack-1;
+			return $histbackcount;
+		}
+
+		sub _onehistfwd{
+			no warnings;
+			$histbackcount-- if $histbackcount > 0;
+			return $histbackcount;
+		}
+		goto READLINESTART;
+	}
+	OVERLOCALSUBS:
+}
+sub _tpsh_main{
+	_bsdtty;
+	while(T){ 
+		tpshReadLine {
+			run $_[0];
+		} evalCatch {
+			eval $_ . ";";
+			print "\$\!: " . $! . "\n" if $!;
+			print "\$\@@: " . $@@ . "\n" if $@@;
+			chomp $_;
+			push @@ts, $_;
+			push @@rec, $_ if $PRO{_rec};
+			$! = undef;
+			$@@ = undef;
+		};
 @
