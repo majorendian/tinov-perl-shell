@@ -7,3 +7,6 @@ repository or download a snapshot from this
 page and run the ./install.sh script.
 
 Linux only for now. Windows support is a planned supported platform.
+
+Checkout the [WIKI](https://github.com/majorendian/tinov-perl-shell/wiki) for
+all the information required to install and run the shell.
