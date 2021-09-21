@@ -10,3 +10,11 @@ Linux only for now. Windows support is a planned supported platform.
 
 Checkout the [WIKI](https://github.com/majorendian/tinov-perl-shell/wiki) for
 all the information required to install and run the shell.
+
+See LICENSE for details about the license.
+
+Checkout the CHANGELOG for feature descriptions and changes.
+
+[CHANGELOG](/CHANGELOG)
+
+[LICENSE](/LICENSE)
